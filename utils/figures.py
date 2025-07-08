@@ -360,6 +360,8 @@ def landscape_diff(quantity, model, colorbar, wigner, Z=None, N=None, A=None, co
     combined_str = np.full_like(vals_arr2d, '')
 
     estimated = np.where(estimated==1, 'E', '') if model=='AME2020' else ''
+    if isinstance(estimated, str):
+        estimated = np.full_like(vals_arr2d, estimated)
     est_str = estimated.copy()
     est_str = np.where(estimated=='E', 'Estimated', '')
     combined_str = est_str.copy()
@@ -383,11 +385,10 @@ def landscape_diff(quantity, model, colorbar, wigner, Z=None, N=None, A=None, co
     if len(filtered)<5:
         raise Exception
     minz, maxz = colorbar_range[0], colorbar_range[1]
-    if minz == None:
-        minz = 0
-    if maxz == None:
-        maxz=float(max(filtered))
-        # maxz=float(np.percentile(filtered, [97]))
+    if minz is None or maxz is None:
+        max_abs = np.max(np.abs(filtered))
+        minz = -max_abs
+        maxz = max_abs
 
     traces = [go.Heatmap(
         x=np.arange(0, vals_arr2d.shape[0]*step, step), y=np.arange(-step/2, vals_arr2d.shape[1]*step, step),
