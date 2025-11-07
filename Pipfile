@@ -1,0 +1,27 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+gunicorn = ">=19.8.1"
+dash = ">=1.0.0"
+colorlover = ">=0.2.1"
+numpy = ">=1.16.2"
+pandas = ">=0.24.2"
+scipy = ">=1.2.1"
+dash-bootstrap-components = "==1.0.2"
+plotly = ">=5.13.0"
+tables = "*"
+kaleido = "*"
+dash-breakpoints = "*"
+django = "*"
+djangorestframework = "*"
+django-filter = "*"
+drf-spectacular = "*"
+dotenv = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.12"

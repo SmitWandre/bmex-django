@@ -1,7 +1,85 @@
-version: '3.7'
+version: '3.8'
 services:
 
-  bmex:
-    image: bmex:latest
+  # Django Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bmex-backend
     ports:
-      - 5000:80
+      - "8000:8000"
+    environment:
+      - DEBUG=True
+      - DJANGO_SECRET_KEY=dev-secret-key-change-in-production
+      - ALLOWED_HOSTS=localhost,127.0.0.1,backend
+      - BMEX_DATA_BACKEND=file
+      - BMEX_DATA_PATH=/app/data
+      - CORS_ALLOWED_ORIGINS=http://localhost:8050,http://127.0.0.1:8050,http://frontend:8050
+      - THROTTLE_ANON=1000/hour
+      - THROTTLE_USER=10000/hour
+      - LOG_LEVEL=INFO
+      - DJANGO_LOG_LEVEL=INFO
+      - APP_LOG_LEVEL=DEBUG
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data:ro
+      - static_volume:/app/staticfiles
+    networks:
+      - bmex-network
+    command: >
+      sh -c "python manage.py collectstatic --noinput &&
+             python manage.py migrate &&
+             gunicorn --workers=4 --threads=2 --timeout=120 --bind=0.0.0.0:8000 backend.wsgi:application"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Dash Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bmex-frontend
+    ports:
+      - "8050:80"
+    environment:
+      - DASH_DEBUG=True
+      - API_BASE_URL=http://backend:8000/api
+    volumes:
+      - ./app.py:/app/app.py
+      - ./assets:/app/assets
+      - ./data:/app/data:ro
+    networks:
+      - bmex-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    command: ["gunicorn", "--workers=4", "--threads=2", "--timeout=120", "-b", "0.0.0.0:80", "app:server"]
+
+  # PostgreSQL Database (optional - for production use)
+  # Uncomment if you want to use PostgreSQL instead of SQLite
+  # db:
+  #   image: postgres:15-alpine
+  #   container_name: bmex-postgres
+  #   environment:
+  #     - POSTGRES_DB=bmex
+  #     - POSTGRES_USER=bmex
+  #     - POSTGRES_PASSWORD=bmex_password
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - bmex-network
+  #   ports:
+  #     - "5432:5432"
+
+networks:
+  bmex-network:
+    driver: bridge
+
+volumes:
+  static_volume:
+  # postgres_data:

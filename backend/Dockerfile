@@ -1,19 +1,19 @@
 # syntax=docker/dockerfile:1
 
 FROM python:3.12-slim-bookworm
-SHELL ["/bin/bash", "-c"]
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    DJANGO_SETTINGS_MODULE=backend.settings
 
 # Create working directory
 RUN mkdir -p /app
 WORKDIR /app
 
-# Install system dependencies required for numpy, pandas, tables, and Django
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
@@ -21,13 +21,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libhdf5-dev \
     libpq-dev \
     pkg-config \
+    curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements file
+# Copy requirements and install Python dependencies
 COPY requirements.txt .
-
-# Install Python dependencies
 RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel && \
     pip3 install --no-cache-dir -r requirements.txt
 
@@ -35,10 +34,17 @@ RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel && \
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p staticfiles data
+RUN mkdir -p staticfiles data logs
+
+# Collect static files (will be run again at startup with proper settings)
+RUN python manage.py collectstatic --noinput --clear || true
 
 # Expose port
-EXPOSE 80
+EXPOSE 8000
 
-# Default command (can be overridden in docker-compose)
-CMD ["gunicorn", "--workers=4", "--threads=2", "--timeout=120", "-b", "0.0.0.0:80", "app:server"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/api/health/ || exit 1
+
+# Default command
+CMD ["gunicorn", "--workers=4", "--threads=2", "--timeout=120", "--bind=0.0.0.0:8000", "backend.wsgi:application"]

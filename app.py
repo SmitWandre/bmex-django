@@ -91,6 +91,10 @@ app.layout = html.Div(
     [Input('url','pathname')]
     )
 def display_page(pathname):
+    # Redirect root path to /masses
+    if pathname == "/" or pathname is None:
+        pathname = "/masses"
+
     if(pathname[:7] == "/masses"):
         out = masses_view()
     else:

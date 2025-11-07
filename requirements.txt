@@ -2,6 +2,15 @@
 gunicorn>=19.8.1
 dash>=1.0.0
 
+# Django & DRF
+django
+djangorestframework
+django-filter
+django-cors-headers
+drf-spectacular
+python-dotenv
+whitenoise
+
 # Additional
 colorlover>=0.2.1
 numpy>=1.16.2

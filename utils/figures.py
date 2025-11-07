@@ -415,6 +415,7 @@ def isotopic_diff(quantity, model, colorbar, wigner, Z, N, A, view_range, uncert
         exp = bmex.IsotopicChain(Z[i],'AME2020',quantity,wigner[i]).sort_values(by=['N'])
         exp.columns=['N', quantity+'_exp', 'u'+quantity, 'e'+quantity]
         df = bmex.IsotopicChain(Z[i],model[i],quantity,wigner[i]).sort_values(by=['N'])
+        df.columns = ['N', quantity, 'u'+quantity+'_model', 'e'+quantity+'_model']
         master = pd.merge(exp, df, how='inner', on=['N'])
         if even_even:
             master = master[master['N']%2==0]
@@ -446,6 +447,7 @@ def isotonic_diff(quantity, model, colorbar, wigner, Z, N, A, view_range, uncert
         exp = bmex.IsotonicChain(N[i],'AME2020',quantity,wigner[i]).sort_values(by=['Z'])
         exp.columns=['Z', quantity+'_exp', 'u'+quantity, 'e'+quantity]
         df = bmex.IsotonicChain(N[i],model[i],quantity,wigner[i]).sort_values(by=['Z'])
+        df.columns = ['Z', quantity, 'u'+quantity+'_model', 'e'+quantity+'_model']
         master = pd.merge(exp, df, how='inner', on=['Z'])
         if even_even:
             master = master[master['Z']%2==0]

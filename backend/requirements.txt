@@ -1,0 +1,22 @@
+# Django & DRF Core
+django>=4.2.0
+djangorestframework>=3.14.0
+django-filter>=23.0
+django-cors-headers>=4.0.0
+drf-spectacular>=0.26.0
+
+# Web Server
+gunicorn>=21.2.0
+whitenoise>=6.5.0
+
+# Environment & Configuration
+python-dotenv>=1.0.0
+
+# Database
+psycopg2-binary>=2.9.0
+
+# Data Processing
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.10.0
+tables>=3.8.0
