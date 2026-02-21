@@ -11,6 +11,7 @@ import plotly.io as pio
 import sqlite3 as sl
 import random as rand
 import string
+import h5py
 
 import dash
 from dash import dcc, ALL, html
@@ -23,13 +24,14 @@ from utils.bmex_views import *
 from utils.views_class import View
 from utils.sidebar_class import Sidebar
 from utils import figures as figs
+from utils import h5_export
 
 
 
 default = {"dimension": 'landscape', "chain": 'isotopic', "quantity": 'BE', "dataset": ['AME2020'], 
            "colorbar": 'linear', "wigner": [0], "proton": [None], "neutron": [None], "nucleon": [None], 
            "range": {"x": [None, None], "y": [None, None]}, "colorbar_range": [None, None],
-           "uncertainty": [False], "estimated": [False], "even_even": True, "beta_type": 'minus'}
+           "uncertainty": [False], "estimated": [False], "even_even": True, "beta_type": 'minus', "include_bmc": False}
 
 app = dash.Dash(
     __name__,
@@ -91,6 +93,10 @@ app.layout = html.Div(
     [Input('url','pathname')]
     )
 def display_page(pathname):
+    if pathname == "/" or pathname == "":
+        # Redirect to /masses
+        return pathname, dcc.Location(id="redirect-to-masses", pathname="/masses", refresh=True)
+
     if(pathname[:7] == "/masses"):
         out = masses_view()
     else:
@@ -190,32 +196,44 @@ def download(n_clicks, figures, json_cur_views):
             fig = px.scatter(x=[0, 1, 2, 3, 4], y=[0, 1, 4, 9, 16])
             fig.write_image("trash_graph.pdf", format="pdf")
             time.sleep(.5)
-            for i in range(len(figures)):
-                filename = "Fig_"+str(i+1)+".pdf"
-                buf = io.BytesIO()
-                fig = go.Figure(figures[i])
-                pio.full_figure_for_development(fig, warn=False)
-                if cur_views[i]['colorbar'] == 'monochrome':
-                    fig.update_traces(colorscale=[[0, 'rgb(163, 77, 57)'], [1, 'rgb(255, 200, 170)']])
-                if cur_views[i]['colorbar'] == 'diverging':
-                    fig.update_traces(colorscale=[[0, 'rgb(0, 0, 255)'], [.5, 'rgb(0, 0, 0)'], [1, 'rgb(255, 0, 0)']])
+            
+            # Export data representation to HDF5 format
+            h5_buf = io.BytesIO()
+            with h5py.File(h5_buf, "w") as h5_file:
+                for i in range(len(figures)):
+                    # PDF EXPORT
+                    filename = "Fig_"+str(i+1)+".pdf"
+                    buf = io.BytesIO()
+                    fig = go.Figure(figures[i])
+                    pio.full_figure_for_development(fig, warn=False)
+                    if cur_views[i]['colorbar'] == 'monochrome':
+                        fig.update_traces(colorscale=[[0, 'rgb(163, 77, 57)'], [1, 'rgb(255, 200, 170)']])
+                    if cur_views[i]['colorbar'] == 'diverging':
+                        fig.update_traces(colorscale=[[0, 'rgb(0, 0, 255)'], [.5, 'rgb(0, 0, 0)'], [1, 'rgb(255, 0, 0)']])
+                        
+                    fig.update_layout(
+                        font={"color": "#000000"}, title=None,
+                        xaxis=dict(linecolor='black', showgrid=True,  minor=dict(showgrid=True, gridcolor="#cccccc"),),
+                        yaxis=dict(linecolor='black', showgrid=True, minor=dict(showgrid=True, gridcolor="#cccccc"),),
+                        plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", 
+                        width=46*15, height=35.75*15),
+    
+                    for trace in fig.data:
+                        try:
+                            if hasattr(trace, 'marker') and getattr(trace.marker, 'color', None) == '#ffffff':
+                                trace.marker.color = '#000000'
+                        except:
+                            pass
+    
+                    fig.write_image(buf, format='pdf', engine="kaleido")
+                    zf.writestr(filename, buf.getvalue())
                     
-                fig.update_layout(
-                    font={"color": "#000000"}, title=None,
-                    xaxis=dict(linecolor='black', showgrid=True,  minor=dict(showgrid=True, gridcolor="#cccccc"),),
-                    yaxis=dict(linecolor='black', showgrid=True, minor=dict(showgrid=True, gridcolor="#cccccc"),),
-                    plot_bgcolor="#ffffff", paper_bgcolor="#ffffff", 
-                    width=46*15, height=35.75*15),
+                    # HDF5 EXPORT
+                    h5_export.export_figure_to_h5(fig, cur_views[i], h5_file, f"Figure_{i+1}")
+            
+            # Write compiled HDF5 dataset alongside PDF graphics into ZIP
+            zf.writestr("BMEX_Data.h5", h5_buf.getvalue())
 
-                for trace in fig.data:
-                    try:
-                        if trace.marker.color == '#ffffff':
-                            trace.marker.color = '#000000'
-                    except:
-                        pass
-
-                fig.write_image(buf, format='pdf', engine="kaleido")
-                zf.writestr(filename, buf.getvalue())
     return dcc.send_bytes(write_zip, zip_file_name)
 
 
@@ -259,6 +277,8 @@ def download(n_clicks, figures, json_cur_views):
         Input('confirm-reset', "submit_n_clicks"),
         #uncertainty-checklist
         Input({'type': 'uncertainty-checklist', 'index': ALL}, 'value'),
+        #include-bmc-checklist
+        Input({'type': 'include-bmc-checklist', 'index': ALL}, 'value'),
         #colorbar-input
         Input({'type': 'cb-input-min', 'index': ALL}, 'value'),
         Input({'type': 'cb-input-max', 'index': ALL}, 'value'),
@@ -280,16 +300,61 @@ def download(n_clicks, figures, json_cur_views):
 def main_update(
     json_cur_views, cur_tabs, cur_sidebar, figures, links, 
     rescale_colorbar, url, tab_n, relayout_data, series_button, series_tab, delete_series, delete_button, 
-    reset_button, uncer, cb_min, cb_max, even_even, dimension, oneD, quantity, dataset, protons, neutrons, nucleons, colorbar, wigner, beta_type):
+    reset_button, uncer, include_bmc_value, cb_min, cb_max, even_even, dimension, oneD, quantity, dataset, protons, neutrons, nucleons, colorbar, wigner, beta_type):
     
+    print(f"=== MAIN UPDATE TRIGGERED ===")
+    try:
+        print(f"TRIGGERED: {dash.callback_context.triggered}")
+        print(f"TRIGGERED_ID: {dash.callback_context.triggered_id}")
+    except Exception as e:
+        print(f"TRIGGER CONTEXT ERROR: {e}")
+        
     cur_views = json.loads(json_cur_views)
     new_views = cur_views.copy()
     
     n = int(tab_n[3])
+    
+    # Helper function to get a safe beta_type output value
+    # The dropdown-beta-type uses ALL pattern, so output must match the number of dropdowns in DOM
+    # The beta_type input tells us how many components exist - if empty, return empty list
+    def get_safe_beta_type(views, view_index):
+        # If beta_type input is empty, there are 0 dropdown components - return empty list
+        if not beta_type or len(beta_type) == 0:
+            return []
+        # Otherwise return the current beta_type (matches number of existing components)
+        return beta_type
     if len(series_tab) == 0:
         series_n = 1
     else:
         series_n = int(series_tab[0][3])
+    
+    try:
+        trig = dash.callback_context.triggered_id
+    except:
+        trig = None
+
+    if isinstance(trig, dict) and trig.get('type') == 'include-bmc-checklist':
+        # include_bmc_value is a list (ALL)
+        v = []
+        if isinstance(include_bmc_value, list) and len(include_bmc_value) > 0:
+            v = include_bmc_value[0] if include_bmc_value[0] is not None else []
+
+        new_views[n-1]['include_bmc'] = ('Include BMC' in v)
+
+        checklist = [str(i+1) for i in range(len(new_views))]
+        beta_out = [new_views[n-1].get('beta_type', 'minus')]
+
+        return [
+            json.dumps(new_views),
+            cur_tabs,
+            json.dumps("update"),
+            tab_n,
+            Sidebar(new_views[n-1], series_n, len(cur_tabs)).show(),
+            checklist,
+            links,
+            ['Even-Even Nuclei'] if new_views[0]['even_even'] else [],
+            beta_out
+        ]
 
     #url
     if "url-store" == dash.callback_context.triggered_id:
@@ -331,7 +396,7 @@ def main_update(
                 checklist,
                 [],
                 ['Even-Even Nuclei'] if loaded_views[0]['even_even'] else [],
-                beta_type
+                get_safe_beta_type(loaded_views, n-1)
             ]
         else:
             new_tabs = [dcc.Tab(label=str(i+1),value='tab'+str(i+1),className='custom-tab', selected_className='custom-tab--selected') for i in range(len(cur_views))]
@@ -347,7 +412,7 @@ def main_update(
                 checklist,
                 [],
                 ['Even-Even Nuclei'] if new_views[0]['even_even'] else [],
-                beta_type
+                get_safe_beta_type(cur_views, n-1)
             ]
 
     #main-tabs_change
@@ -375,7 +440,7 @@ def main_update(
             checklist,
             links,
             ['Even-Even Nuclei'] if new_views[0]['even_even'] else [],
-            beta_type
+            get_safe_beta_type(new_views, n-1)
         ]
 
     #delete_plot
@@ -399,7 +464,7 @@ def main_update(
                 checklist,
                 links,
                 ['Even-Even Nuclei'] if new_views[0]['even_even'] else [],
-                beta_type
+                get_safe_beta_type(new_views, len(new_views)-1)
             ]
         else:
             raise PreventUpdate
@@ -416,7 +481,7 @@ def main_update(
             ['1'],
             [],
             ['Even-Even Nuclei'],
-            beta_type
+            get_safe_beta_type([default], 0)
         ]
 
     # A function that inputs an array of different data types and only keeps the floats
@@ -443,7 +508,7 @@ def main_update(
             checklist,
             links,
             ['Even-Even Nuclei'] if new_views[0]['even_even'] else [],
-            beta_type
+            get_safe_beta_type(new_views, n-1)
         ]
     
     # even_even
@@ -460,7 +525,7 @@ def main_update(
             checklist,
             links,
             ['Even-Even Nuclei'] if new_views[0]['even_even'] else [],
-            beta_type
+            get_safe_beta_type(new_views, n-1)
         ]
 
     try:
@@ -483,12 +548,33 @@ def main_update(
                 y_range[1] = 999
             xmin, xmax = math.floor(x_range[0])+math.floor(x_range[0])%2, math.ceil(x_range[1])-math.ceil(x_range[1])%2
             ymin, ymax = math.floor(y_range[0])+math.floor(y_range[0])%2, math.ceil(y_range[1])-math.ceil(y_range[1])%2
-            x, y = np.array(figures[n-1]['data'][0]['x']), np.array(figures[n-1]['data'][0]['y'])
-            xmin_i, xmax_i = int(np.where(x>=xmin)[0][0]), int(np.where(x<=xmax)[0][-1])+1
-            ymin_i, ymax_i = int(np.where(y>=ymin)[0][0]), int(np.where(y<=ymax)[0][-1])+1
-            values = float_array(np.array(figures[n-1]['data'][0]['z'])[ymin_i:ymax_i, xmin_i:xmax_i].flatten())
-            val_min, val_max = np.round(np.min(values),3), np.round(np.max(values),3)
-            new_views[n-1]['colorbar_range'] = [val_min, val_max]
+            
+            try:
+                x_data = figures[n-1]['data'][0].get('x')
+                y_data = figures[n-1]['data'][0].get('y')
+                z_data = figures[n-1]['data'][0].get('z')
+                
+                if x_data is not None and y_data is not None and z_data is not None:
+                    if len(x_data) > 0 and isinstance(x_data[0], dict):
+                        raise TypeError("x_data contains dictionaries instead of numbers")
+                    
+                    x, y = np.array(x_data), np.array(y_data)
+                    
+                    xmin_i_arr = np.where(x >= xmin)[0]
+                    xmax_i_arr = np.where(x <= xmax)[0]
+                    ymin_i_arr = np.where(y >= ymin)[0]
+                    ymax_i_arr = np.where(y <= ymax)[0]
+                    
+                    if len(xmin_i_arr) > 0 and len(xmax_i_arr) > 0 and len(ymin_i_arr) > 0 and len(ymax_i_arr) > 0:
+                        xmin_i, xmax_i = int(xmin_i_arr[0]), int(xmax_i_arr[-1]) + 1
+                        ymin_i, ymax_i = int(ymin_i_arr[0]), int(ymax_i_arr[-1]) + 1
+                        
+                        values = float_array(np.array(z_data)[ymin_i:ymax_i, xmin_i:xmax_i].flatten())
+                        if len(values) > 0:
+                            val_min, val_max = np.round(np.min(values), 3), np.round(np.max(values), 3)
+                            new_views[n-1]['colorbar_range'] = [val_min, val_max]
+            except Exception as e:
+                print(f"Colorbar rescale bypassed: {e}")
             checklist = [str(i+1) for i in range(len(cur_views))]
             return [
                 json.dumps(new_views),
@@ -499,7 +585,7 @@ def main_update(
                 checklist,
                 links,
                 ['Even-Even Nuclei'] if new_views[0]['even_even'] else [],
-                beta_type
+                get_safe_beta_type(new_views, n-1)
             ]
         raise PreventUpdate
     
@@ -575,7 +661,7 @@ def main_update(
             checklist,
             links,
             ['Even-Even Nuclei'] if new_views[0]['even_even'] else [],
-            beta_type
+            get_safe_beta_type(new_views, n-1)
         ]
 
     #delete_series
@@ -599,7 +685,7 @@ def main_update(
                 checklist,
                 links,
                 ['Even-Even Nuclei'] if new_views[0]['even_even'] else [],
-                beta_type
+                get_safe_beta_type(new_views, n-1)
             ]
         else:
             raise PreventUpdate
@@ -624,7 +710,7 @@ def main_update(
                 checklist,
                 links,
                 ['Even-Even Nuclei'] if new_views[0]['even_even'] else [],
-                beta_type
+                get_safe_beta_type(new_views, n-1)
             ]
         return [
             json.dumps(cur_views), 
@@ -635,16 +721,16 @@ def main_update(
             checklist,
             links,
             ['Even-Even Nuclei'] if new_views[0]['even_even'] else [],
-            beta_type
+            get_safe_beta_type(cur_views, n-1)
         ]
-    if quantity[n-1] in ["BetaMinusDecay", "BetaPlusDecay"]:
-
-            new_views[n-1]['beta_type'] = beta_type[n-1]  # Add beta_type to the current view
+    if quantity and len(quantity) > n-1 and quantity[n-1] in ["BetaMinusDecay", "BetaPlusDecay"]:
+        if beta_type and len(beta_type) > 0:
+            new_views[n-1]['beta_type'] = beta_type[0]  # Add beta_type to the current view
 
     if "dropdown-beta-type" == dash.callback_context.triggered_id['type']:
-
-        new_views[n-1]['quantity'] = 'BetaPlusDecay' if beta_type[0] == 'plus' else 'BetaMinusDecay'
-        new_views[n-1]['beta_type'] = beta_type[n-1]
+        if beta_type and len(beta_type) > 0:
+            new_views[n-1]['quantity'] = 'BetaPlusDecay' if beta_type[0] == 'plus' else 'BetaMinusDecay'
+            new_views[n-1]['beta_type'] = beta_type[0]
 
     # Colorbar Input
     if "cb-input-min" == dash.callback_context.triggered_id['type']:
@@ -703,29 +789,35 @@ def main_update(
     ],
 )
 def graph_output(trigger: str, breakpoint_name: str, json_views: list):
-
     if(dash.callback_context.triggered_id != 'triggerGraph' or json.loads(trigger)=="update"):
-        views_list = json.loads(json_views)
-        graph_styles = []
-        if breakpoint_name == "lg" and len(views_list) > 1:
-            style = {"display": 'grid', "grid-template-columns": '[c1] 50% [c2] 50% [c3]',
-            "grid-template-rows": '[r1] 50% [r2] 50% [r3]', "width": '100%', "height": '39.6vw'}
-            for i in range(len(views_list)):
-                graph_styles.append({"grid-area": f"r{math.ceil((i+1)/2)} / c{1+i%2} / r{math.ceil((i+1)/2)+1} / c{2+i%2}", \
-                                     "width": '27vw', "height": '21vw'})
-        elif breakpoint_name == "sm":
-            style = {"display": 'flex', "width": '100%'}
-            graph_styles = [{"width": '96vw', "height": '80vw'} for i in range(len(views_list))]
-        else:
-            style = {"display": 'flex', "width": '100%'}
-            graph_styles = [{"width": '48vw', "height": '37vw'} for i in range(len(views_list))]
-        output = []
-        for i in range(len(views_list)): # iterate through dicts in list
-            view = View(views_list[i], i+1)
-            output.append(view.plot(graph_style=graph_styles[i]))
-        return output, style
+        try:
+            views_list = json.loads(json_views)
+            graph_styles = []
+            if breakpoint_name == "lg" and len(views_list) > 1:
+                style = {"display": 'grid', "gridTemplateColumns": '[c1] 50% [c2] 50% [c3]',
+                "gridTemplateRows": '[r1] 50% [r2] 50% [r3]', "width": '100%', "height": '39.6vw'}
+                for i in range(len(views_list)):
+                    graph_styles.append({"gridArea": f"r{math.ceil((i+1)/2)} / c{1+i%2} / r{math.ceil((i+1)/2)+1} / c{2+i%2}", \
+                                         "width": '27vw', "height": '21vw'})
+            elif breakpoint_name == "sm":
+                style = {"display": 'flex', "width": '100%'}
+                graph_styles = [{"width": '96vw', "height": '80vw'} for i in range(len(views_list))]
+            else:
+                style = {"display": 'flex', "width": '100%'}
+                graph_styles = [{"width": '48vw', "height": '37vw'} for i in range(len(views_list))]
+            output = []
+            for i in range(len(views_list)): # iterate through dicts in list
+                view = View(views_list[i], i+1)
+                output.append(view.plot(graph_style=graph_styles[i]))
+            return output, style
+        except Exception as exc:
+            app.logger.exception("Error building graphs", exc_info=exc)
+            return [html.Div(
+                "Graph rendering failed. Check server logs for details.",
+                style={"color": "#e76f51", "padding": "1rem"}
+            )], {"display": "block", "width": "100%"}
     raise PreventUpdate
 
 # Running the server
 if __name__ == "__main__":
-    app.run_server(debug=True)
+    app.run(debug=True)

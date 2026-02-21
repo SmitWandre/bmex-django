@@ -1,19 +1,45 @@
 # syntax=docker/dockerfile:1
 
-FROM python:3.13-slim-bookworm
+FROM python:3.12-slim-bookworm
 SHELL ["/bin/bash", "-c"]
 
-RUN mkdir wd
-WORKDIR wd
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# Create working directory
+RUN mkdir -p /app
+WORKDIR /app
+
+# Install system dependencies required for numpy, pandas, tables, and Django
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    python3-dev \
+    libhdf5-dev \
+    libpq-dev \
+    pkg-config \
+    chromium \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements file
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip3 install --no-cache-dir -r requirements.txt
+
+# Copy application code
 COPY . .
 
-ARG TARGETPLATFORM
+# Create necessary directories
+RUN mkdir -p staticfiles data
 
-RUN apt-get update && apt-get install -y gcc python3-dev g++
-RUN apt-get clean && rm -rf /var/lib/apt/lists/*
+# Expose port
+EXPOSE 80
 
-COPY requirements.txt .
-RUN pip3 install -r requirements.txt
-
-CMD [ "gunicorn", "--workers=8", "--threads=4", "-b 0.0.0.0:80", "app:server"]
+# Expose port and run Gunicorn with Dash app
+CMD ["gunicorn", "--workers=4", "--threads=2", "--timeout=120", "-b", "0.0.0.0:80", "--no-control-socket", "app:server"]

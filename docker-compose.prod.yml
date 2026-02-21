@@ -1,0 +1,145 @@
+version: '3.8'
+
+services:
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: bmex-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - static_volume:/var/www/static:ro
+    networks:
+      - bmex-network
+    depends_on:
+      - backend
+      - frontend
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Django Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bmex-backend
+    restart: unless-stopped
+    expose:
+      - "8000"
+    env_file:
+      - .env
+    environment:
+      - DEBUG=False
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,backend,nginx}
+      - BMEX_DATA_BACKEND=${BMEX_DATA_BACKEND:-file}
+      - BMEX_DATA_PATH=/app/data
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost}
+      - THROTTLE_ANON=${THROTTLE_ANON:-1000/hour}
+      - THROTTLE_USER=${THROTTLE_USER:-10000/hour}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DJANGO_LOG_LEVEL=${DJANGO_LOG_LEVEL:-WARNING}
+      - APP_LOG_LEVEL=${APP_LOG_LEVEL:-INFO}
+    volumes:
+      - ./data:/app/data:ro
+      - static_volume:/app/staticfiles
+      - logs_backend:/app/logs
+    networks:
+      - bmex-network
+    command: >
+      sh -c "python manage.py collectstatic --noinput &&
+             python manage.py migrate &&
+             gunicorn --workers=${GUNICORN_WORKERS:-4} \
+                      --threads=${GUNICORN_THREADS:-2} \
+                      --timeout=${GUNICORN_TIMEOUT:-120} \
+                      --bind=0.0.0.0:8000 \
+                      --access-logfile /app/logs/gunicorn-access.log \
+                      --error-logfile /app/logs/gunicorn-error.log \
+                      --log-level info \
+                      --no-control-socket \
+                      backend.wsgi:application"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Dash Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bmex-frontend
+    restart: unless-stopped
+    expose:
+      - "80"
+    env_file:
+      - .env
+    environment:
+      - DASH_DEBUG=False
+      - API_BASE_URL=${API_BASE_URL:-http://backend:8000/api}
+    volumes:
+      - ./data:/app/data:ro
+      - logs_frontend:/app/logs
+    networks:
+      - bmex-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    command: >
+      gunicorn --workers=${GUNICORN_WORKERS:-4} \
+               --threads=${GUNICORN_THREADS:-2} \
+               --timeout=${GUNICORN_TIMEOUT:-120} \
+               --bind=0.0.0.0:80 \
+               --access-logfile /app/logs/gunicorn-access.log \
+               --error-logfile /app/logs/gunicorn-error.log \
+               --log-level info \
+               --no-control-socket \
+               app:server
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/masses"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL Database (optional - uncomment for production database)
+  # db:
+  #   image: postgres:15-alpine
+  #   container_name: bmex-postgres
+  #   restart: unless-stopped
+  #   environment:
+  #     - POSTGRES_DB=${DB_NAME:-bmex}
+  #     - POSTGRES_USER=${DB_USER:-bmex_user}
+  #     - POSTGRES_PASSWORD=${DB_PASSWORD}
+  #     - POSTGRES_INITDB_ARGS=--encoding=UTF-8
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #     - ./backend/db_backups:/backups
+  #   networks:
+  #     - bmex-network
+  #   ports:
+  #     - "5432:5432"
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-bmex_user} -d ${DB_NAME:-bmex}"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+networks:
+  bmex-network:
+    driver: bridge
+
+volumes:
+  static_volume:
+  logs_backend:
+  logs_frontend:
+  # postgres_data:
