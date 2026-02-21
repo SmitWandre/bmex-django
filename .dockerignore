@@ -32,15 +32,12 @@ Pipfile.lock
 *~
 .DS_Store
 
-# Docker
-docker-compose*.yml
-Dockerfile*
+# Docker (keep production files)
+docker-compose.yml
 .dockerignore
 
-# Documentation
-*.md
+# Documentation (keep README for reference)
 docs/
-LICENSE
 
 # CI/CD
 .github/

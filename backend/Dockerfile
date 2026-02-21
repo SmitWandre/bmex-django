@@ -40,11 +40,10 @@ RUN mkdir -p staticfiles data logs
 RUN python manage.py collectstatic --noinput --clear || true
 
 # Expose port
-EXPOSE 8000
-
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/api/health/ || exit 1
 
-# Default command
-CMD ["gunicorn", "--workers=4", "--threads=2", "--timeout=120", "--bind=0.0.0.0:8000", "backend.wsgi:application"]
+# Expose port and run Gunicorn
+EXPOSE 8000
+CMD ["gunicorn", "--workers=4", "--threads=2", "--timeout=120", "--bind=0.0.0.0:8000", "--no-control-socket", "backend.wsgi:application"]

@@ -30,7 +30,7 @@ services:
     command: >
       sh -c "python manage.py collectstatic --noinput &&
              python manage.py migrate &&
-             gunicorn --workers=4 --threads=2 --timeout=120 --bind=0.0.0.0:8000 backend.wsgi:application"
+             gunicorn --workers=4 --threads=2 --timeout=120 --bind=0.0.0.0:8000 --no-control-socket backend.wsgi:application"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
       interval: 30s
@@ -52,13 +52,14 @@ services:
     volumes:
       - ./app.py:/app/app.py
       - ./assets:/app/assets
+      - ./utils:/app/utils
       - ./data:/app/data:ro
     networks:
       - bmex-network
     depends_on:
       backend:
         condition: service_healthy
-    command: ["gunicorn", "--workers=4", "--threads=2", "--timeout=120", "-b", "0.0.0.0:80", "app:server"]
+    command: ["gunicorn", "--workers=4", "--threads=2", "--timeout=120", "-b", "0.0.0.0:80", "--no-control-socket", "app:server"]
 
   # PostgreSQL Database (optional - for production use)
   # Uncomment if you want to use PostgreSQL instead of SQLite

@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libhdf5-dev \
     libpq-dev \
     pkg-config \
+    chromium \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -40,5 +41,5 @@ RUN mkdir -p staticfiles data
 # Expose port
 EXPOSE 80
 
-# Default command (can be overridden in docker-compose)
-CMD ["gunicorn", "--workers=4", "--threads=2", "--timeout=120", "-b", "0.0.0.0:80", "app:server"]
+# Expose port and run Gunicorn with Dash app
+CMD ["gunicorn", "--workers=4", "--threads=2", "--timeout=120", "-b", "0.0.0.0:80", "--no-control-socket", "app:server"]

@@ -1,24 +1,15 @@
 # Core
 gunicorn>=19.8.1
-dash>=1.0.0
-
-# Django & DRF
-django
-djangorestframework
-django-filter
-django-cors-headers
-drf-spectacular
-python-dotenv
-whitenoise
+dash==2.18.2
 
 # Additional
 colorlover>=0.2.1
 numpy>=1.16.2
 pandas>=0.24.2
 scipy>=1.2.1
-dash-bootstrap-components==1.0.2
+dash-bootstrap-components==1.6.0
 plotly>=5.13.0
 tables
 kaleido
 dash_breakpoints
-
+h5py>=3.10.0
